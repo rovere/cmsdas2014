@@ -20,6 +20,9 @@ Implementation:
 
 // system include files
 #include <memory>
+#include <vector>
+#include <array>
+#include <string>
 
 // user include files
 #include "FWCore/Framework/interface/Frameworkfwd.h"
@@ -36,8 +39,29 @@ Implementation:
 #include "DataFormats/TrackReco/interface/Track.h"
 #include "DataFormats/TrackReco/interface/TrackFwd.h"
 #include "DataFormats/Math/interface/LorentzVector.h"
+#include "DataFormats/SiPixelCluster/interface/SiPixelCluster.h"
+#include "DataFormats/SiStripCluster/interface/SiStripCluster.h"
+#include "DataFormats/Common/interface/DetSetVectorNew.h"
+#include "DataFormats/Common/interface/ContainerMask.h"
+#include "DataFormats/SiPixelDetId/interface/PixelEndcapName.h"
+#include "DataFormats/SiStripDetId/interface/SiStripDetId.h"
+#include "DataFormats/SiStripDetId/interface/TIDDetId.h"
+#include "DataFormats/SiStripDetId/interface/TECDetId.h"
 
 #include "TH1.h"
+#include "TProfile.h"
+
+std::array<std::string, 9> ITERATIONS = {{
+    "initialStepClusters",
+    "detachedTripletStepClusters",
+    "lowPtTripletStepClusters",
+    "pixelPairStepClusters",
+    "mixedTripletStepClusters",
+    "pixelLessStepClusters",
+    "pixelLessStepSeedClusters",
+    "tobTecStepClusters",
+    "tobTecStepSeedClusters"
+  }};
 
 //
 // class declaration
@@ -64,6 +88,7 @@ class TrackProperties : public edm::EDAnalyzer {
                                   edm::EventSetup const&);
 
   void diMuonAnalysis(const edm::Event&, const edm::EventSetup&);
+  void clusterAnalysis(const edm::Event&, const edm::EventSetup&);
 
   // ----------member data ---------------------------
   float  muon_mass_;
@@ -82,6 +107,28 @@ class TrackProperties : public edm::EDAnalyzer {
   TH1F * h_total_py;
   TH1F * h_total_pz;
   TH1F * h_dimuon;
+  TProfile * h_removed_pixel_clusters;
+  TProfile * h_removed_pixel_barrel_clusters;
+  TProfile * h_removed_pixel_fwd_pos_clusters;
+  TProfile * h_removed_pixel_fwd_neg_clusters;
+  TProfile * h_removed_strip_clusters;
+  TProfile * h_removed_strip_TIB_clusters;
+  TProfile * h_removed_strip_TOB_clusters;
+  TProfile * h_removed_strip_TID_pos_clusters;
+  TProfile * h_removed_strip_TID_neg_clusters;
+  TProfile * h_removed_strip_TEC_pos_clusters;
+  TProfile * h_removed_strip_TEC_neg_clusters;
+  TProfile * h_surviving_pixel_clusters;
+  TProfile * h_surviving_pixel_barrel_clusters;
+  TProfile * h_surviving_pixel_fwd_pos_clusters;
+  TProfile * h_surviving_pixel_fwd_neg_clusters;
+  TProfile * h_surviving_strip_clusters;
+  TProfile * h_surviving_strip_TIB_clusters;
+  TProfile * h_surviving_strip_TOB_clusters;
+  TProfile * h_surviving_strip_TID_pos_clusters;
+  TProfile * h_surviving_strip_TID_neg_clusters;
+  TProfile * h_surviving_strip_TEC_pos_clusters;
+  TProfile * h_surviving_strip_TEC_neg_clusters;
 };
 
 //
@@ -150,6 +197,125 @@ TrackProperties::TrackProperties(const edm::ParameterSet& iConfig)
   h_dimuon = fs->make<TH1F>("diMuon",
                             "diMuon",
                             100, 0., 5.);
+  h_removed_pixel_clusters = fs->make<TProfile>("removedPixelCluster",
+                                          "removedPixelClusters",
+                                          ITERATIONS.size(),
+                                          0., ITERATIONS.size());
+   h_removed_pixel_barrel_clusters = fs->make<TProfile>("removedPXBCluster",
+                                          "removedPixelClusters",
+                                          ITERATIONS.size(),
+                                          0., ITERATIONS.size());
+   h_removed_pixel_fwd_pos_clusters = fs->make<TProfile>("removedPFPCluster",
+                                          "removedPixelClusters",
+                                          ITERATIONS.size(),
+                                          0., ITERATIONS.size());
+   h_removed_pixel_fwd_neg_clusters = fs->make<TProfile>("removedPFNCluster",
+                                          "removedPixelClusters",
+                                          ITERATIONS.size(),
+                                          0., ITERATIONS.size());
+   h_removed_strip_clusters = fs->make<TProfile>("removedStripluster",
+                                                "removedStripClusters",
+                                                ITERATIONS.size(),
+                                                0., ITERATIONS.size());
+   h_removed_strip_TIB_clusters = fs->make<TProfile>("removedTIBCluster",
+                                                "removedTIBClusters",
+                                                ITERATIONS.size(),
+                                                0., ITERATIONS.size());
+   h_removed_strip_TOB_clusters = fs->make<TProfile>("removedTOBCluster",
+                                                "removedTOBClusters",
+                                                ITERATIONS.size(),
+                                                0., ITERATIONS.size());
+   h_removed_strip_TID_pos_clusters = fs->make<TProfile>("removedTIDPCpluster",
+                                                "removedTIDPClusters",
+                                                ITERATIONS.size(),
+                                                0., ITERATIONS.size());
+   h_removed_strip_TID_neg_clusters = fs->make<TProfile>("removedTIDNCluster",
+                                                "removedTIDNClusters",
+                                                ITERATIONS.size(),
+                                                0., ITERATIONS.size());
+   h_removed_strip_TEC_pos_clusters = fs->make<TProfile>("removedTECPCluster",
+                                                "removedTECPClusters",
+                                                ITERATIONS.size(),
+                                                0., ITERATIONS.size());
+   h_removed_strip_TEC_neg_clusters = fs->make<TProfile>("removedTECNCluster",
+                                                "removedTECNClusters",
+                                                ITERATIONS.size(),
+                                                0., ITERATIONS.size());
+   h_surviving_pixel_clusters = fs->make<TProfile>("survivingPixelCluster",
+                                          "survivingPixelClusters",
+                                          ITERATIONS.size(),
+                                          0., ITERATIONS.size());
+   h_surviving_pixel_barrel_clusters = fs->make<TProfile>("survivingPXBCluster",
+                                          "survivingPXBClusters",
+                                          ITERATIONS.size(),
+                                          0., ITERATIONS.size());
+   h_surviving_pixel_fwd_pos_clusters = fs->make<TProfile>("survivingPFPCluster",
+                                          "survivingPFBClusters",
+                                          ITERATIONS.size(),
+                                          0., ITERATIONS.size());
+   h_surviving_pixel_fwd_neg_clusters = fs->make<TProfile>("survivingPFNCluster",
+                                          "survivingPFNClusters",
+                                          ITERATIONS.size(),
+                                          0., ITERATIONS.size());
+   h_surviving_strip_clusters = fs->make<TProfile>("survivingStripluster",
+                                                "survivingStripClusters",
+                                                ITERATIONS.size(),
+                                                0., ITERATIONS.size());
+   h_surviving_strip_TIB_clusters = fs->make<TProfile>("survivingTIBCluster",
+                                                "survivingTIBClusters",
+                                                ITERATIONS.size(),
+                                                0., ITERATIONS.size());
+   h_surviving_strip_TOB_clusters = fs->make<TProfile>("survivingTOBCluster",
+                                                "survivingTOBClusters",
+                                                ITERATIONS.size(),
+                                                0., ITERATIONS.size());
+   h_surviving_strip_TID_pos_clusters = fs->make<TProfile>("survivingTIDPCluster",
+                                                "survivingTIDPClusters",
+                                                ITERATIONS.size(),
+                                                0., ITERATIONS.size());
+   h_surviving_strip_TID_neg_clusters = fs->make<TProfile>("survivingTIDNCluster",
+                                                "survivingTIDNClusters",
+                                                ITERATIONS.size(),
+                                                0., ITERATIONS.size());
+   h_surviving_strip_TEC_pos_clusters = fs->make<TProfile>("survivingTECPDluster",
+                                                "survivingTECPClusters",
+                                                ITERATIONS.size(),
+                                                0., ITERATIONS.size());
+   h_surviving_strip_TEC_neg_clusters = fs->make<TProfile>("survivingTECNCluster",
+                                                "survivingTECNClusters",
+                                                ITERATIONS.size(),
+                                                0., ITERATIONS.size());
+  std::vector<TAxis *> axes;
+  axes.push_back(h_removed_pixel_clusters->GetXaxis());
+  axes.push_back(h_removed_pixel_barrel_clusters->GetXaxis());
+  axes.push_back(h_removed_pixel_fwd_pos_clusters->GetXaxis());
+  axes.push_back(h_removed_pixel_fwd_neg_clusters->GetXaxis());
+  axes.push_back(h_removed_strip_clusters->GetXaxis());
+  axes.push_back(h_removed_strip_TIB_clusters->GetXaxis());
+  axes.push_back(h_removed_strip_TOB_clusters->GetXaxis());
+  axes.push_back(h_removed_strip_TID_pos_clusters->GetXaxis());
+  axes.push_back(h_removed_strip_TID_neg_clusters->GetXaxis());
+  axes.push_back(h_removed_strip_TEC_pos_clusters->GetXaxis());
+  axes.push_back(h_removed_strip_TEC_neg_clusters->GetXaxis());
+  axes.push_back(h_surviving_pixel_clusters->GetXaxis());
+  axes.push_back(h_surviving_pixel_barrel_clusters->GetXaxis());
+  axes.push_back(h_surviving_pixel_fwd_pos_clusters->GetXaxis());
+  axes.push_back(h_surviving_pixel_fwd_neg_clusters->GetXaxis());
+  axes.push_back(h_surviving_strip_clusters->GetXaxis());
+  axes.push_back(h_surviving_strip_TIB_clusters->GetXaxis());
+  axes.push_back(h_surviving_strip_TOB_clusters->GetXaxis());
+  axes.push_back(h_surviving_strip_TID_pos_clusters->GetXaxis());
+  axes.push_back(h_surviving_strip_TID_neg_clusters->GetXaxis());
+  axes.push_back(h_surviving_strip_TEC_pos_clusters->GetXaxis());
+  axes.push_back(h_surviving_strip_TEC_neg_clusters->GetXaxis());
+  for (auto it_axis = axes.begin();
+       it_axis != axes.end(); ++it_axis) {
+    int bin = 0;
+    for (auto it = ITERATIONS.begin();
+         it != ITERATIONS.end(); ++it, ++bin) {
+      (*it_axis)->SetBinLabel((*it_axis)->FindBin(bin), it->c_str());
+    }
+  }
 }
 
 
@@ -179,6 +345,28 @@ TrackProperties::~TrackProperties() {
   delete h_total_py;
   delete h_total_pz;
   delete h_dimuon;
+  delete h_removed_pixel_clusters;
+  delete h_removed_pixel_barrel_clusters;
+  delete h_removed_pixel_fwd_pos_clusters;
+  delete h_removed_pixel_fwd_neg_clusters;
+  delete h_removed_strip_clusters;
+  delete h_removed_strip_TIB_clusters;
+  delete h_removed_strip_TOB_clusters;
+  delete h_removed_strip_TID_pos_clusters;
+  delete h_removed_strip_TID_neg_clusters;
+  delete h_removed_strip_TEC_pos_clusters;
+  delete h_removed_strip_TEC_neg_clusters;
+  delete h_surviving_pixel_clusters;
+  delete h_surviving_pixel_barrel_clusters;
+  delete h_surviving_pixel_fwd_pos_clusters;
+  delete h_surviving_pixel_fwd_neg_clusters;
+  delete h_surviving_strip_clusters;
+  delete h_surviving_strip_TIB_clusters;
+  delete h_surviving_strip_TOB_clusters;
+  delete h_surviving_strip_TID_pos_clusters;
+  delete h_surviving_strip_TID_neg_clusters;
+  delete h_surviving_strip_TEC_pos_clusters;
+  delete h_surviving_strip_TEC_neg_clusters;
 }
 
 
@@ -240,6 +428,9 @@ TrackProperties::analyze(const edm::Event& iEvent,
 
   // Perform diMuon analyse
   diMuonAnalysis(iEvent, iSetup);
+
+  // Perform cluster analysis
+  clusterAnalysis(iEvent, iSetup);
 }
 
 
@@ -249,6 +440,9 @@ void TrackProperties::diMuonAnalysis(const edm::Event & iEvent,
 
   edm::Handle<reco::TrackCollection> tracks;
   iEvent.getByLabel("globalMuons", tracks);
+
+  if (! tracks.isValid())
+    return;
 
   // Analyse only events with exactly 2 global muons.
   if (tracks->size() != 2)
@@ -263,6 +457,189 @@ void TrackProperties::diMuonAnalysis(const edm::Event & iEvent,
                                   mu1.pz()+mu2.pz(),
                                   e1+e2);
   h_dimuon->Fill(dimuon.mass());
+}
+
+void TrackProperties::clusterAnalysis(const edm::Event & iEvent,
+                                      const edm::EventSetup&) {
+  typedef edm::ContainerMask<edmNew::DetSetVector<SiPixelCluster> > PixelMaskContainer;
+  typedef edm::ContainerMask<edmNew::DetSetVector<SiStripCluster> > StripMaskContainer;
+  using namespace edm;
+
+  std::vector<bool> mask;
+  int num_iter = 0;
+  for (auto it = ITERATIONS.begin();
+       it != ITERATIONS.end(); ++it, ++num_iter) {
+
+    // Pixel Clusters
+
+    mask.clear();
+    edm::Handle<PixelMaskContainer> pixel_mask_clusters;
+    iEvent.getByLabel(*it, pixel_mask_clusters);
+    if (! pixel_mask_clusters.isValid()) {
+      break;
+    }
+    mask.reserve(pixel_mask_clusters->size());
+    pixel_mask_clusters->copyMaskTo(mask);
+    h_removed_pixel_clusters->Fill(num_iter,
+                                   (float)std::count(mask.begin(),
+                                                     mask.end(),
+                                                     true) / (float)mask.size());
+    h_surviving_pixel_clusters->Fill(num_iter,
+                                     1. - ((float)std::count(mask.begin(),
+                                                             mask.end(),
+                                                             true) / (float)mask.size()));
+
+    // Single Pixel Detector Contributions
+
+    const edmNew::DetSetVector<SiPixelCluster> * pixel_clusters
+        = pixel_mask_clusters->refProd().product();
+    edmNew::DetSetVector<SiPixelCluster>::const_iterator it_pixel_cluster_set =
+        pixel_clusters->begin();
+    size_t pixel_cluster_counter = 0;
+    float pixel_barrel_tot = 0, pixel_barrel_removed = 0, pixel_fwd_p_tot = 0,
+        pixel_fwd_p_removed = 0, pixel_fwd_n_tot = 0, pixel_fwd_n_removed = 0;
+    for( ; it_pixel_cluster_set != pixel_clusters->end(); ++it_pixel_cluster_set) {
+      DetId detId(it_pixel_cluster_set->id());
+      assert(pixel_cluster_counter <= mask.size());
+      float removed = (float)std::count(mask.begin() + pixel_cluster_counter,
+                                        mask.begin() + pixel_cluster_counter
+                                        + it_pixel_cluster_set->size(),
+                                        true);
+      switch (detId.subdetId()) {
+        case PixelSubdetector::PixelBarrel: {
+          pixel_barrel_tot += it_pixel_cluster_set->size();
+          pixel_barrel_removed += removed;
+          break;
+        }
+        case PixelSubdetector::PixelEndcap: {
+          PixelEndcapName pixel_endcap_detid(detId);
+          if (pixel_endcap_detid.halfCylinder() > PixelEndcapName::mI) {
+            pixel_fwd_p_tot += it_pixel_cluster_set->size();
+            pixel_fwd_p_removed += removed;
+          } else {
+            pixel_fwd_n_tot += it_pixel_cluster_set->size();
+            pixel_fwd_n_removed += removed;
+          }
+        }
+        default:
+          assert(-1);
+      }
+      pixel_cluster_counter += it_pixel_cluster_set->size();
+    }
+    assert(pixel_cluster_counter == mask.size());
+    h_removed_pixel_barrel_clusters->Fill(num_iter,
+                                          pixel_barrel_removed/pixel_barrel_tot);
+    h_surviving_pixel_barrel_clusters->Fill(num_iter,
+                                            1. - pixel_barrel_removed/pixel_barrel_tot);
+    h_removed_pixel_fwd_pos_clusters->Fill(num_iter,
+                                           pixel_fwd_p_removed/pixel_fwd_p_tot);
+    h_surviving_pixel_fwd_pos_clusters->Fill(num_iter,
+                                             1. - pixel_fwd_p_removed/pixel_fwd_p_tot);
+    h_removed_pixel_fwd_neg_clusters->Fill(num_iter,
+                                           pixel_fwd_n_removed/pixel_fwd_n_tot);
+    h_surviving_pixel_fwd_neg_clusters->Fill(num_iter,
+                                             1. - pixel_fwd_n_removed/pixel_fwd_n_tot);
+
+
+    // Strip Clusters
+
+    mask.clear();
+    edm::Handle<StripMaskContainer> strip_mask_clusters;
+    iEvent.getByLabel(*it, strip_mask_clusters);
+    if (! strip_mask_clusters.isValid()) {
+      break;
+    }
+    mask.reserve(strip_mask_clusters->size());
+    strip_mask_clusters->copyMaskTo(mask);
+    h_removed_strip_clusters->Fill(num_iter,
+                                   (float)std::count(mask.begin(),
+                                                     mask.end(),
+                                                     true) / (float)mask.size());
+    h_surviving_strip_clusters->Fill(num_iter,
+                                     1. - ((float)std::count(mask.begin(),
+                                                             mask.end(),
+                                                             true) / (float)mask.size()));
+    // Single Strip Detector Contributions
+
+    const edmNew::DetSetVector<SiStripCluster> * strip_clusters
+        = strip_mask_clusters->refProd().product();
+    auto it_strip_cluster_set = strip_clusters->begin();
+    size_t strip_cluster_counter = 0;
+    float strip_tib_removed = 0, strip_tib_tot = 0, strip_tob_removed = 0,
+        strip_tob_tot = 0, strip_tid_p_removed = 0, strip_tid_p_tot = 0,
+        strip_tid_n_removed = 0, strip_tid_n_tot = 0, strip_tec_p_removed = 0,
+        strip_tec_p_tot = 0, strip_tec_n_removed = 0, strip_tec_n_tot = 0;
+    for( ; it_strip_cluster_set != strip_clusters->end(); ++it_strip_cluster_set) {
+      SiStripDetId detId(it_strip_cluster_set->id());
+      assert(strip_cluster_counter <= mask.size());
+      float removed = (float)std::count(mask.begin() + strip_cluster_counter,
+                                        mask.begin() + strip_cluster_counter
+                                        + it_strip_cluster_set->size(),
+                                        true);
+      switch (detId.subDetector()) {
+        case SiStripDetId::TIB: {
+          strip_tib_tot +=it_strip_cluster_set->size();
+          strip_tib_removed += removed;
+          break;
+        }
+        case SiStripDetId::TOB: {
+          strip_tob_tot +=it_strip_cluster_set->size();
+          strip_tob_removed += removed;
+          break;
+        }
+        case SiStripDetId::TID: {
+          TIDDetId tid_detid(detId.rawId());
+          if (tid_detid.isZPlusSide()) {
+            strip_tid_p_tot +=it_strip_cluster_set->size();
+            strip_tid_p_removed += removed;
+          } else {
+            strip_tid_n_tot +=it_strip_cluster_set->size();
+            strip_tid_n_removed += removed;
+          }
+          break;
+        }
+        case SiStripDetId::TEC: {
+          TECDetId tec_detid(detId.rawId());
+          if (tec_detid.isZPlusSide()) {
+            strip_tec_p_tot +=it_strip_cluster_set->size();
+            strip_tec_p_removed += removed;
+          } else {
+            strip_tec_n_tot +=it_strip_cluster_set->size();
+            strip_tec_n_removed += removed;
+          }
+          break;
+        }
+        default:
+          assert(-1);
+      }
+      strip_cluster_counter += it_strip_cluster_set->size();
+    }
+    assert(strip_cluster_counter == mask.size());
+    h_removed_strip_TIB_clusters->Fill(num_iter,
+                                       strip_tib_removed/strip_tib_tot);
+    h_removed_strip_TOB_clusters->Fill(num_iter,
+                                       strip_tob_removed/strip_tob_tot);
+    h_removed_strip_TID_pos_clusters->Fill(num_iter,
+                                           strip_tid_p_removed/strip_tid_p_tot);
+    h_removed_strip_TID_neg_clusters->Fill(num_iter,
+                                           strip_tid_n_removed/strip_tid_n_tot);
+    h_removed_strip_TEC_pos_clusters->Fill(num_iter,
+                                           strip_tec_p_removed/strip_tec_p_tot);
+    h_removed_strip_TEC_neg_clusters->Fill(num_iter,
+                                           strip_tec_n_removed/strip_tec_n_tot);
+    h_surviving_strip_TIB_clusters->Fill(num_iter,
+                                         1. - strip_tib_removed/strip_tib_tot);
+    h_surviving_strip_TOB_clusters->Fill(num_iter,
+                                         1. - strip_tob_removed/strip_tob_tot);
+    h_surviving_strip_TID_pos_clusters->Fill(num_iter,
+                                             1. - strip_tid_p_removed/strip_tid_p_tot);
+    h_surviving_strip_TID_neg_clusters->Fill(num_iter,
+                                             1. - strip_tid_n_removed/strip_tid_n_tot);
+    h_surviving_strip_TEC_pos_clusters->Fill(num_iter,
+                                             1. -strip_tec_p_removed/strip_tec_p_tot);
+    h_surviving_strip_TEC_neg_clusters->Fill(num_iter,
+                                             1. - strip_tec_n_removed/strip_tec_n_tot);
+  }
 }
 
 
