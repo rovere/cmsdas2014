@@ -23,6 +23,7 @@ Implementation:
 #include <vector>
 #include <array>
 #include <string>
+#include <sstream>
 
 // user include files
 #include "FWCore/Framework/interface/Frameworkfwd.h"
@@ -45,8 +46,16 @@ Implementation:
 #include "DataFormats/Common/interface/ContainerMask.h"
 #include "DataFormats/SiPixelDetId/interface/PixelEndcapName.h"
 #include "DataFormats/SiStripDetId/interface/SiStripDetId.h"
+#include "DataFormats/SiPixelDetId/interface/PXBDetId.h"
+#include "DataFormats/SiPixelDetId/interface/PXFDetId.h"
+#include "DataFormats/SiStripDetId/interface/TIBDetId.h"
+#include "DataFormats/SiStripDetId/interface/TOBDetId.h"
 #include "DataFormats/SiStripDetId/interface/TIDDetId.h"
 #include "DataFormats/SiStripDetId/interface/TECDetId.h"
+// Hits related includes
+#include "DataFormats/TrackerRecHit2D/interface/SiPixelRecHitCollection.h"
+#include "DataFormats/TrackerRecHit2D/interface/SiStripRecHit2DCollection.h"
+#include "DataFormats/TrackerRecHit2D/interface/SiStripMatchedRecHit2DCollection.h"
 
 #include "TH1.h"
 #include "TProfile.h"
@@ -63,12 +72,41 @@ std::array<std::string, 9> ITERATIONS = {{
     "tobTecStepSeedClusters"
   }};
 
+const char * TRACKER_DETECTORS [] = {
+  "PXB1", "PXB2", "PXB3",  // 0-2
+  "PXF1", "PXF2",          // 3-4
+  "TIB1", "TIB2", "TIB3", "TIB4",  // 5-8
+  "TOB1", "TOB2", "TOB3", "TOB4", "TOB5", "TOB6",  // 9-14
+  "TID1", "TID2", "TID3",  // 15-17
+  "TEC1", "TEC2", "TEC3", "TEC4", "TEC5", "TEC6", "TEC7", "TEC8", "TEC9", // 18-26
+  0 // Signal that the array is over.
+  };
+
+
+
 //
 // class declaration
 //
 
 class TrackProperties : public edm::EDAnalyzer {
  public:
+  typedef edm::ContainerMask<edmNew::DetSetVector<SiPixelCluster> > PixelMaskContainer;
+  typedef edm::ContainerMask<edmNew::DetSetVector<SiStripCluster> > StripMaskContainer;
+  enum HIT_KIND {
+    Pixel = 0,
+    Matched,
+    RPhi_Matched, RPhi_Unmatched,
+    Stereo_Matched, Stereo_Unmatched,
+    First = Pixel,
+    Last = Stereo_Unmatched
+  };
+
+  struct RecHitStudy {
+    float total_hits[9][TrackProperties::Last];
+    float removed_hits[9][TrackProperties::Last];
+    ~RecHitStudy(){};
+  };
+
   explicit TrackProperties(const edm::ParameterSet&);
   ~TrackProperties();
 
@@ -89,8 +127,23 @@ class TrackProperties : public edm::EDAnalyzer {
 
   void diMuonAnalysis(const edm::Event&, const edm::EventSetup&);
   void clusterAnalysis(const edm::Event&, const edm::EventSetup&);
+  void recHitsAnalysis(const edm::Event&, const edm::EventSetup&);
+
+  // No specialization for templates inside a class: too bad!
+  template<class Iter> void fill_rechit_counters_matched(Iter begin,
+                                                         Iter end,
+                                                         HIT_KIND kind,
+                                                         int num_iter,
+                                                         edm::Handle<StripMaskContainer> &);
+  template<class Iter> void fill_rechit_counters(Iter begin,
+                                                 Iter end,
+                                                 HIT_KIND kind,
+                                                 int num_iter,
+                                                 edm::Handle<StripMaskContainer> &);
 
   // ----------member data ---------------------------
+
+  RecHitStudy rechit_counters[sizeof(TRACKER_DETECTORS)/sizeof(char *)];
   float  muon_mass_;
   TH1F * h_track_signedpt;
   TH1F * h_track_phi;
@@ -129,6 +182,7 @@ class TrackProperties : public edm::EDAnalyzer {
   TProfile * h_surviving_strip_TID_neg_clusters;
   TProfile * h_surviving_strip_TEC_pos_clusters;
   TProfile * h_surviving_strip_TEC_neg_clusters;
+  std::vector<TProfile *> recHits_iterations;
 };
 
 //
@@ -286,6 +340,18 @@ TrackProperties::TrackProperties(const edm::ParameterSet& iConfig)
                                                 ITERATIONS.size(),
                                                 0., ITERATIONS.size());
   std::vector<TAxis *> axes;
+  std::stringstream ss;
+  for (const char **name = TRACKER_DETECTORS; *name; ++name) {
+    for (int k = 0; k <= TrackProperties::Last; ++k) {
+      ss.str(""); ss << *name; ss << "_"; ss << k;
+      TProfile * tmp = fs->make<TProfile>(ss.str().c_str(),
+                                          ss.str().c_str(),
+                                          ITERATIONS.size(),
+                                          0., ITERATIONS.size());
+      recHits_iterations.push_back(tmp);
+      axes.push_back(tmp->GetXaxis());
+    }
+  }
   axes.push_back(h_removed_pixel_clusters->GetXaxis());
   axes.push_back(h_removed_pixel_barrel_clusters->GetXaxis());
   axes.push_back(h_removed_pixel_fwd_pos_clusters->GetXaxis());
@@ -308,11 +374,11 @@ TrackProperties::TrackProperties(const edm::ParameterSet& iConfig)
   axes.push_back(h_surviving_strip_TID_neg_clusters->GetXaxis());
   axes.push_back(h_surviving_strip_TEC_pos_clusters->GetXaxis());
   axes.push_back(h_surviving_strip_TEC_neg_clusters->GetXaxis());
-  for (auto it_axis = axes.begin();
-       it_axis != axes.end(); ++it_axis) {
+  for (auto it_axis = axes.begin(),
+           it_axise = axes.end(); it_axis != it_axise; ++it_axis) {
     int bin = 0;
-    for (auto it = ITERATIONS.begin();
-         it != ITERATIONS.end(); ++it, ++bin) {
+    for (auto it = ITERATIONS.begin(),
+             ite = ITERATIONS.end(); it != ite; ++it, ++bin) {
       (*it_axis)->SetBinLabel((*it_axis)->FindBin(bin), it->c_str());
     }
   }
@@ -367,6 +433,8 @@ TrackProperties::~TrackProperties() {
   delete h_surviving_strip_TID_neg_clusters;
   delete h_surviving_strip_TEC_pos_clusters;
   delete h_surviving_strip_TEC_neg_clusters;
+  for (auto h : recHits_iterations)
+    delete h;
 }
 
 
@@ -431,6 +499,7 @@ TrackProperties::analyze(const edm::Event& iEvent,
 
   // Perform cluster analysis
   clusterAnalysis(iEvent, iSetup);
+  recHitsAnalysis(iEvent, iSetup);
 }
 
 
@@ -461,8 +530,6 @@ void TrackProperties::diMuonAnalysis(const edm::Event & iEvent,
 
 void TrackProperties::clusterAnalysis(const edm::Event & iEvent,
                                       const edm::EventSetup&) {
-  typedef edm::ContainerMask<edmNew::DetSetVector<SiPixelCluster> > PixelMaskContainer;
-  typedef edm::ContainerMask<edmNew::DetSetVector<SiStripCluster> > StripMaskContainer;
   using namespace edm;
 
   std::vector<bool> mask;
@@ -642,6 +709,197 @@ void TrackProperties::clusterAnalysis(const edm::Event & iEvent,
   }
 }
 
+void TrackProperties::recHitsAnalysis(const edm::Event & iEvent,
+                                      const edm::EventSetup&) {
+  typedef edm::ContainerMask<edmNew::DetSetVector<SiPixelCluster> > PixelMaskContainer;
+  typedef edm::ContainerMask<edmNew::DetSetVector<SiStripCluster> > StripMaskContainer;
+  using namespace edm;
+
+  // Fetch all kind of hits we want to study hits. This number should
+  // match the HIT_KIND enum defined for this class.
+
+  edm::Handle<SiPixelRecHitCollection> pixelHits;
+  iEvent.getByLabel("siPixelRecHits", pixelHits);
+
+  edm::Handle<SiStripMatchedRecHit2DCollection> matchedHits;
+  iEvent.getByLabel("siStripMatchedRecHits","matchedRecHit", matchedHits);
+
+  edm::Handle<SiStripRecHit2DCollection> rphiHits;
+  iEvent.getByLabel("siStripMatchedRecHits","rphiRecHit", rphiHits);
+
+  edm::Handle<SiStripRecHit2DCollection> rphiuHits;
+  iEvent.getByLabel("siStripMatchedRecHits","rphiRecHitUnmatched", rphiuHits);
+
+  edm::Handle<SiStripRecHit2DCollection> stereoHits;
+  iEvent.getByLabel("siStripMatchedRecHits","stereoRecHit", stereoHits);
+
+  edm::Handle<SiStripRecHit2DCollection> stereouHits;
+  iEvent.getByLabel("siStripMatchedRecHits","stereoRecHitUnmatched", stereouHits);
+
+  std::vector<bool> mask;
+  int num_iter = 0;
+  for (auto it = ITERATIONS.begin();
+       it != ITERATIONS.end(); ++it, ++num_iter) {
+
+    // Reset internal counters
+    int detector_index = 0;
+    for (const char **name = TRACKER_DETECTORS; *name; ++name, ++detector_index) {
+      for (int k = 0; k <= TrackProperties::Last; ++k) {
+        rechit_counters[detector_index].total_hits[num_iter][k] = 0;
+        rechit_counters[detector_index].removed_hits[num_iter][k] = 0;
+      }
+    }
+
+    // Pixel Hits
+
+    edm::Handle<PixelMaskContainer> pixel_mask_clusters;
+    iEvent.getByLabel(*it, pixel_mask_clusters);
+    if (! pixel_mask_clusters.isValid()) {
+      break;
+    }
+
+    int base_index = 0;
+    for (auto pit = pixelHits->begin(),
+             pite = pixelHits->end(); pit != pite; ++pit ) {
+      DetId hitId = pit->detId();
+      for (auto hit = pit->begin(), hite = pit->end() ; hit != hite; ++hit ) {
+        if (hitId.subdetId() == (int) PixelSubdetector::PixelBarrel ) {
+          base_index = -1 + PXBDetId(hitId).layer();
+        } else if (hitId.subdetId() == (int) PixelSubdetector::PixelEndcap ) {
+          base_index = 2 + PXFDetId(hitId).disk();
+        } else {
+          assert(-1);
+        }
+        rechit_counters[base_index].total_hits[num_iter][TrackProperties::Pixel]++;
+        if ( pixel_mask_clusters->mask(hit->cluster().key()) == 0) {
+          rechit_counters[base_index].removed_hits[num_iter][TrackProperties::Pixel]++;
+        }
+      }
+    }
+
+    // Strip Clusters
+
+    edm::Handle<StripMaskContainer> strip_mask_clusters;
+    iEvent.getByLabel(*it, strip_mask_clusters);
+    if (! strip_mask_clusters.isValid()) {
+      break;
+    }
+
+    fill_rechit_counters_matched(matchedHits->begin(), matchedHits->end(),
+                         TrackProperties::Matched, num_iter, strip_mask_clusters);
+    fill_rechit_counters(rphiHits->begin(), rphiHits->end(),
+                         TrackProperties::RPhi_Matched, num_iter, strip_mask_clusters);
+    fill_rechit_counters(rphiuHits->begin(), rphiuHits->end(),
+                         TrackProperties::RPhi_Unmatched, num_iter, strip_mask_clusters);
+    fill_rechit_counters(stereoHits->begin(), stereoHits->end(),
+                         TrackProperties::Stereo_Matched, num_iter, strip_mask_clusters);
+    fill_rechit_counters(stereouHits->begin(), stereouHits->end(),
+                         TrackProperties::Stereo_Unmatched, num_iter, strip_mask_clusters);
+
+    detector_index = 0;
+    int profile_index = 0;
+    for (const char **name = TRACKER_DETECTORS; *name; ++name) {
+      for (int k = 0; k <= TrackProperties::Last; ++k) {
+        if (rechit_counters[detector_index].total_hits[num_iter][k]) {
+#ifdef DEBUG
+          std::cout << *name << "_" << k << " "
+                    << "[tot/rem/ratio]"
+                    << " " << rechit_counters[detector_index].total_hits[num_iter][k]
+                    << " " << rechit_counters[detector_index].removed_hits[num_iter][k]
+                    << " " << rechit_counters[detector_index].removed_hits[num_iter][k] / rechit_counters[detector_index].total_hits[num_iter][k]
+                    << std::endl;
+#endif
+          recHits_iterations[profile_index]->Fill(num_iter,
+                                                  rechit_counters[detector_index].removed_hits[num_iter][k] /
+                                                  rechit_counters[detector_index].total_hits[num_iter][k]);
+        }
+        ++profile_index;
+      }
+      ++detector_index;
+    }
+  }
+}
+
+
+// Double template for the damned matched rechits!
+template<class Iter>
+void TrackProperties::fill_rechit_counters_matched(Iter begin,
+                                                   Iter end,
+                                                   HIT_KIND kind,
+                                                   int num_iter,
+                                                   edm::Handle<StripMaskContainer> & strip_mask_clusters) {
+  int base_index = 0;
+  for (auto sit = begin, site = end; sit != site; ++sit) {
+    DetId hitId = sit->detId();
+    for (auto hit = sit->begin(),
+             hite = sit->end(); hit != hite; ++hit) {
+      switch (hitId.subdetId()) {
+        case StripSubdetector::TIB: {
+          base_index = 4 + TIBDetId(hitId).layer();
+          break;
+        }
+        case StripSubdetector::TOB: {
+          base_index = 8 + TOBDetId(hitId).layer();
+          break;
+        }
+        case StripSubdetector::TID: {
+          base_index = 14 + TIDDetId(hitId).wheel();
+          break;
+        }
+        case StripSubdetector::TEC: {
+          base_index = 17 + TECDetId(hitId).wheel();
+          break;
+        }
+        default:
+          assert(-1);
+      }
+      rechit_counters[base_index].total_hits[num_iter][kind]++;
+      if ( (strip_mask_clusters->mask(hit->monoClusterRef().key()) == 0
+            || strip_mask_clusters->mask(hit->stereoClusterRef().key()) == 0)) {
+        rechit_counters[base_index].removed_hits[num_iter][kind]++;
+      }
+    }
+  }
+}
+
+template<class Iter>
+void TrackProperties::fill_rechit_counters(Iter begin,
+                                           Iter end,
+                                           HIT_KIND kind,
+                                           int num_iter,
+                                           edm::Handle<StripMaskContainer> & strip_mask_clusters) {
+  int base_index = 0;
+  for (auto sit = begin, site = end; sit != site; ++sit) {
+    DetId hitId = sit->detId();
+    for (auto hit = sit->begin(),
+             hite = sit->end(); hit != hite; ++hit) {
+      switch (hitId.subdetId()) {
+        case StripSubdetector::TIB: {
+          base_index = 4 + TIBDetId(hitId).layer();
+          break;
+        }
+        case StripSubdetector::TOB: {
+          base_index = 8 + TOBDetId(hitId).layer();
+          break;
+        }
+        case StripSubdetector::TID: {
+          base_index = 14 + TIDDetId(hitId).wheel();
+          break;
+        }
+        case StripSubdetector::TEC: {
+          base_index = 17 + TECDetId(hitId).wheel();
+          break;
+        }
+        default:
+          assert(-1);
+      }
+      rechit_counters[base_index].total_hits[num_iter][kind]++;
+      if (strip_mask_clusters->mask(hit->cluster().key()) == 0) {
+        rechit_counters[base_index].removed_hits[num_iter][kind]++;
+      }
+    }
+  }
+}
 
 // --- method called once each job just before starting event loop  ---
 void

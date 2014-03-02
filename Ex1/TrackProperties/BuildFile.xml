@@ -5,5 +5,7 @@
 <use name="DataFormats/TrackReco"/>
 <use name="DataFormats/SiPixelDetId"/>
 <use name="DataFormats/SiStripDetId"/>
+<use name="TrackingTools/Records"/>
+<use name="TrackingTools/TransientTrackingRecHit"/>
 <use name="CommonTools/UtilAlgos"/>
 <flags EDM_PLUGIN="1"/>
