@@ -41,7 +41,8 @@ process.TFileService = cms.Service("TFileService",
                                    fileName = cms.string('trackParameters.root')
                                    )
 
-process.trkproperties = cms.EDAnalyzer('TrackProperties')
+process.trkproperties = cms.EDAnalyzer('TrackProperties',
+                                       TTRHBuilder = cms.string("WithAngleAndTemplate"))
 
 
 process.p = cms.Path(process.clustToHits

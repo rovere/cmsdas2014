@@ -17,6 +17,7 @@ Implementation:
 //
 //
 
+// #define DEBUG
 
 // system include files
 #include <memory>
@@ -29,6 +30,7 @@ Implementation:
 #include "FWCore/Framework/interface/Frameworkfwd.h"
 #include "FWCore/Framework/interface/EDAnalyzer.h"
 
+#include "FWCore/Framework/interface/ESHandle.h"
 #include "FWCore/Framework/interface/Event.h"
 #include "FWCore/Framework/interface/MakerMacros.h"
 
@@ -56,7 +58,11 @@ Implementation:
 #include "DataFormats/TrackerRecHit2D/interface/SiPixelRecHitCollection.h"
 #include "DataFormats/TrackerRecHit2D/interface/SiStripRecHit2DCollection.h"
 #include "DataFormats/TrackerRecHit2D/interface/SiStripMatchedRecHit2DCollection.h"
+// TransientTrackingRechit
+#include "TrackingTools/Records/interface/TransientRecHitRecord.h"
+#include "TrackingTools/TransientTrackingRecHit/interface/TransientTrackingRecHitBuilder.h"
 
+// ROOT
 #include "TH1.h"
 #include "TProfile.h"
 
@@ -102,9 +108,17 @@ class TrackProperties : public edm::EDAnalyzer {
   };
 
   struct RecHitStudy {
-    float total_hits[9][TrackProperties::Last];
-    float removed_hits[9][TrackProperties::Last];
-    ~RecHitStudy(){};
+    float total_hits[9][TrackProperties::Last + 1];
+    float surviving_hits[9][TrackProperties::Last + 1];
+    TProfile * profiles[TrackProperties::Last + 1]; //Iteration index is absorbed into the X axis of the TProfile
+    ~RecHitStudy() {
+      for (int i=0; i <= TrackProperties::Last; ++i) {
+#ifdef DEBUG
+        std::cout << i << " " << profiles[i] << std::endl;
+#endif
+        delete profiles[i];
+      }
+    };
   };
 
   explicit TrackProperties(const edm::ParameterSet&);
@@ -142,8 +156,14 @@ class TrackProperties : public edm::EDAnalyzer {
                                                  edm::Handle<StripMaskContainer> &);
 
   // ----------member data ---------------------------
+  std::string builderName_;
+  const TransientTrackingRecHitBuilder* builder_;
 
-  RecHitStudy rechit_counters[sizeof(TRACKER_DETECTORS)/sizeof(char *)];
+  // Last element of TRACKER_DETECTORS is the null pointer to signal
+  // the end of the array and should not be used as a real detector
+  // ==> hence the -1.
+
+  RecHitStudy rechit_counters[sizeof(TRACKER_DETECTORS)/sizeof(char *) - 1];
   float  muon_mass_;
   TH1F * h_track_signedpt;
   TH1F * h_track_phi;
@@ -182,7 +202,6 @@ class TrackProperties : public edm::EDAnalyzer {
   TProfile * h_surviving_strip_TID_neg_clusters;
   TProfile * h_surviving_strip_TEC_pos_clusters;
   TProfile * h_surviving_strip_TEC_neg_clusters;
-  std::vector<TProfile *> recHits_iterations;
 };
 
 //
@@ -197,7 +216,8 @@ class TrackProperties : public edm::EDAnalyzer {
 // constructors and destructor
 //
 TrackProperties::TrackProperties(const edm::ParameterSet& iConfig)
-    : muon_mass_(0.1056) {
+    : builderName_(iConfig.getParameter<std::string>("TTRHBuilder")),
+      muon_mass_(0.1056) {
   edm::Service<TFileService> fs;   //  now do whatever initialization is needed
   h_track_signedpt = fs->make<TH1F>("Track_SignedPt",
                                     "Track_SignedPt",
@@ -341,15 +361,19 @@ TrackProperties::TrackProperties(const edm::ParameterSet& iConfig)
                                                 0., ITERATIONS.size());
   std::vector<TAxis *> axes;
   std::stringstream ss;
-  for (const char **name = TRACKER_DETECTORS; *name; ++name) {
+  int detector_index = 0;
+  for (const char **name = TRACKER_DETECTORS;
+       *name; ++name, ++detector_index) {
     for (int k = 0; k <= TrackProperties::Last; ++k) {
       ss.str(""); ss << *name; ss << "_"; ss << k;
-      TProfile * tmp = fs->make<TProfile>(ss.str().c_str(),
-                                          ss.str().c_str(),
-                                          ITERATIONS.size(),
-                                          0., ITERATIONS.size());
-      recHits_iterations.push_back(tmp);
-      axes.push_back(tmp->GetXaxis());
+      rechit_counters[detector_index].profiles[k] = fs->make<TProfile>(ss.str().c_str(),
+                                                                       ss.str().c_str(),
+                                                                       ITERATIONS.size(),
+                                                                       0., ITERATIONS.size());
+#ifdef DEBUG
+      std::cout << *name << " " << rechit_counters[detector_index].profiles[k] << std::endl;
+#endif
+      axes.push_back(rechit_counters[detector_index].profiles[k]->GetXaxis());
     }
   }
   axes.push_back(h_removed_pixel_clusters->GetXaxis());
@@ -382,6 +406,10 @@ TrackProperties::TrackProperties(const edm::ParameterSet& iConfig)
       (*it_axis)->SetBinLabel((*it_axis)->FindBin(bin), it->c_str());
     }
   }
+#ifdef DEBUG
+  std::cout << "Using " << sizeof(rechit_counters)/sizeof(RecHitStudy)
+            << " detector counters." << std::endl;
+#endif
 }
 
 
@@ -433,8 +461,6 @@ TrackProperties::~TrackProperties() {
   delete h_surviving_strip_TID_neg_clusters;
   delete h_surviving_strip_TEC_pos_clusters;
   delete h_surviving_strip_TEC_neg_clusters;
-  for (auto h : recHits_iterations)
-    delete h;
 }
 
 
@@ -746,7 +772,7 @@ void TrackProperties::recHitsAnalysis(const edm::Event & iEvent,
     for (const char **name = TRACKER_DETECTORS; *name; ++name, ++detector_index) {
       for (int k = 0; k <= TrackProperties::Last; ++k) {
         rechit_counters[detector_index].total_hits[num_iter][k] = 0;
-        rechit_counters[detector_index].removed_hits[num_iter][k] = 0;
+        rechit_counters[detector_index].surviving_hits[num_iter][k] = 0;
       }
     }
 
@@ -772,7 +798,7 @@ void TrackProperties::recHitsAnalysis(const edm::Event & iEvent,
         }
         rechit_counters[base_index].total_hits[num_iter][TrackProperties::Pixel]++;
         if ( pixel_mask_clusters->mask(hit->cluster().key()) == 0) {
-          rechit_counters[base_index].removed_hits[num_iter][TrackProperties::Pixel]++;
+          rechit_counters[base_index].surviving_hits[num_iter][TrackProperties::Pixel]++;
         }
       }
     }
@@ -805,13 +831,13 @@ void TrackProperties::recHitsAnalysis(const edm::Event & iEvent,
           std::cout << *name << "_" << k << " "
                     << "[tot/rem/ratio]"
                     << " " << rechit_counters[detector_index].total_hits[num_iter][k]
-                    << " " << rechit_counters[detector_index].removed_hits[num_iter][k]
-                    << " " << rechit_counters[detector_index].removed_hits[num_iter][k] / rechit_counters[detector_index].total_hits[num_iter][k]
+                    << " " << rechit_counters[detector_index].surviving_hits[num_iter][k]
+                    << " " << rechit_counters[detector_index].surviving_hits[num_iter][k] / rechit_counters[detector_index].total_hits[num_iter][k]
                     << std::endl;
 #endif
-          recHits_iterations[profile_index]->Fill(num_iter,
-                                                  rechit_counters[detector_index].removed_hits[num_iter][k] /
-                                                  rechit_counters[detector_index].total_hits[num_iter][k]);
+          rechit_counters[detector_index].profiles[k]->Fill(num_iter,
+                                                            rechit_counters[detector_index].surviving_hits[num_iter][k] /
+                                                            rechit_counters[detector_index].total_hits[num_iter][k]);
         }
         ++profile_index;
       }
@@ -856,7 +882,7 @@ void TrackProperties::fill_rechit_counters_matched(Iter begin,
       rechit_counters[base_index].total_hits[num_iter][kind]++;
       if ( (strip_mask_clusters->mask(hit->monoClusterRef().key()) == 0
             || strip_mask_clusters->mask(hit->stereoClusterRef().key()) == 0)) {
-        rechit_counters[base_index].removed_hits[num_iter][kind]++;
+        rechit_counters[base_index].surviving_hits[num_iter][kind]++;
       }
     }
   }
@@ -870,9 +896,18 @@ void TrackProperties::fill_rechit_counters(Iter begin,
                                            edm::Handle<StripMaskContainer> & strip_mask_clusters) {
   int base_index = 0;
   for (auto sit = begin, site = end; sit != site; ++sit) {
-    DetId hitId = sit->detId();
+  DetId hitId = sit->detId();
     for (auto hit = sit->begin(),
              hite = sit->end(); hit != hite; ++hit) {
+#ifdef DEBUG
+      TransientTrackingRecHit::RecHitPointer thit = builder_->build(&*hit);
+      if (thit->isValid()) {
+        std::cout << "Hit at ("
+                  << thit->globalPosition().x() << ", "
+                  << thit->globalPosition().y() << ", "
+                  << thit->globalPosition().z() << ")" << std::endl;
+      }
+#endif
       switch (hitId.subdetId()) {
         case StripSubdetector::TIB: {
           base_index = 4 + TIBDetId(hitId).layer();
@@ -895,7 +930,7 @@ void TrackProperties::fill_rechit_counters(Iter begin,
       }
       rechit_counters[base_index].total_hits[num_iter][kind]++;
       if (strip_mask_clusters->mask(hit->cluster().key()) == 0) {
-        rechit_counters[base_index].removed_hits[num_iter][kind]++;
+        rechit_counters[base_index].surviving_hits[num_iter][kind]++;
       }
     }
   }
@@ -911,7 +946,12 @@ TrackProperties::endJob() {}
 
 // --- method called when starting to processes a run  ---
 void
-TrackProperties::beginRun(edm::Run const&, edm::EventSetup const&) {}
+TrackProperties::beginRun(edm::Run const& iRun,
+                          edm::EventSetup const& iSetup) {
+  edm::ESHandle<TransientTrackingRecHitBuilder> theBuilder;
+  iSetup.get<TransientRecHitRecord>().get(builderName_, theBuilder);
+  builder_ = theBuilder.product();
+}
 
 // --- method called when ending the processing of a run  ---
 void
